@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#120b3d">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Orbit Soccer</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600&family=Nunito:wght@700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="in-menu">
+
+<div id="stage">
+  <canvas id="cv" aria-label="Campo do jogo: arraste para trás e solte para chutar a bola em direção ao gol"></canvas>
+  <div class="hud">
+    <span class="pill" id="hLevel">Fase 1</span>
+    <span class="pill" id="hShots">Chutes 0</span>
+    <span class="pill" id="hGoals">Gols 0</span>
+  </div>
+  <div class="dock">
+    <button class="btn alt" id="bMenu" type="button">Menu</button>
+    <button class="btn alt" id="bNew" type="button">Nova fase</button>
+    <button class="btn" id="bReset" type="button">Recomeçar</button>
+  </div>
+
+  <div class="menu" id="menu">
+    <h1 class="logo"><span>Orbit</span><span>Soccer</span></h1>
+    <p class="tag">Use a gravidade dos planetas pra fazer o gol</p>
+    <div class="diff" role="radiogroup" aria-label="Dificuldade">
+      <label><input type="radio" name="diff" value="facil"><span>Fácil</span></label>
+      <label><input type="radio" name="diff" value="normal"><span>Normal</span></label>
+      <label><input type="radio" name="diff" value="dificil"><span>Difícil</span></label>
+    </div>
+    <p class="best" id="best"></p>
+    <div class="menu-actions">
+      <button class="btn big" id="bPlay" type="button">Jogar</button>
+      <button class="btn alt big" id="bContinue" type="button" hidden>Continuar</button>
+    </div>
+  </div>
+</div>
+
+<script src="game.js"></script>
+</body>
+</html>
