@@ -138,10 +138,12 @@
 
   /* ---------- estado ---------- */
   var level = null;
-  var goals = 0, shots = 0, firstShot = true;
+  var goals = 0, shots = 0, misses = 0, firstShot = true;
   var mode = 'menu', modeT = 0, flightT = 0, clock = 0, missText = '';
   var ball = { x: START.x, y: START.y, vx: 0, vy: 0, rot: 0 };
   var trail = [], parts = [], aim = null;
+  var path = [], pull = null, ghost = null; // ghost: último chute errado {dx, dy, path}
+  var showMass = load('os-mass', false), massT = 1, MASS_ANIM = 0.25;
 
   /* estrelas em 3 camadas: longe (pequenas, azuladas, lentas) → perto (grandes, brilham em cruz).
      Coordenadas normalizadas na tela inteira; cada camada desliza e faz parallax num ritmo próprio. */
@@ -156,11 +158,16 @@
   });
   var cam = { x: 0, y: 0 };
 
+  var NEWLEVEL_AFTER = 5, elNew = document.getElementById('bNew');
   var elLevel = document.getElementById('hLevel'), elShots = document.getElementById('hShots'), elGoals = document.getElementById('hGoals');
   function hud() {
     elLevel.textContent = 'Fase ' + level.n;
     elShots.textContent = 'Chutes ' + shots;
     elGoals.textContent = 'Gols ' + goals;
+    // trocar de fase só depois de 5 erros nela
+    var left = NEWLEVEL_AFTER - misses;
+    elNew.disabled = left > 0;
+    elNew.textContent = left > 0 ? 'Nova fase · ' + left : 'Nova fase';
   }
 
   function resetBall() {
@@ -169,7 +176,7 @@
   }
   function loadLevel(n, keepGoals) {
     level = genLevel(n);
-    shots = 0; parts = [];
+    shots = 0; misses = 0; parts = []; ghost = null;
     if (!keepGoals) goals = 0;
     if (n > (best[diffKey] || 0)) { best[diffKey] = n; save('os-best', best); }
     resetBall(); hud();
@@ -219,12 +226,23 @@
     var d = Math.hypot(aim.dx, aim.dy);
     if (d > MAXPULL) { aim.dx *= MAXPULL / d; aim.dy *= MAXPULL / d; }
   }
+  function planetAt(cx, cy) {
+    var x = (cx - offX) / scale, y = (cy - offY) / scale;
+    for (var i = 0; i < level.planets.length; i++) {
+      var p = level.planets[i];
+      if (Math.hypot(x - p.x, y - p.y) < p.r + 10) return true; // folga pro dedo
+    }
+    return false;
+  }
+  // inverte de onde a animação parou, sem pulo se tocar no meio dela
+  function toggleMass() { showMass = !showMass; massT = MASS_ANIM - Math.min(massT, MASS_ANIM); save('os-mass', showMass); }
   cv.addEventListener('pointerdown', function (e) {
     e.preventDefault();
     if (mode === 'goal' && modeT > 0.6) { loadLevel(level.n + 1, true); return; }
-    if (mode !== 'aim') return;
+    var hit = planetAt(e.clientX, e.clientY);
+    if (mode !== 'aim') { if (hit) toggleMass(); return; }
     try { cv.setPointerCapture(e.pointerId); } catch (err) {}
-    aim = { px: e.clientX, py: e.clientY, dx: 0, dy: 0 };
+    aim = { px: e.clientX, py: e.clientY, dx: 0, dy: 0, tap: hit };
   });
   cv.addEventListener('pointermove', function (e) {
     if (!aim) return;
@@ -236,15 +254,16 @@
     if (!aim) return;
     var d = Math.hypot(aim.dx, aim.dy), a = aim;
     aim = null;
-    if (mode !== 'aim' || d < MINPULL) return;
+    if (mode !== 'aim' || d < MINPULL) { if (a.tap) toggleMass(); return; }
     ball.vx = -a.dx * SPEEDK; ball.vy = -a.dy * SPEEDK;
     ball.x = START.x; ball.y = START.y;
     mode = 'flying'; flightT = 0; trail = []; firstShot = false;
+    pull = { dx: a.dx, dy: a.dy }; path = [{ x: START.x, y: START.y }];
     shots++; hud();
   }
   cv.addEventListener('pointerup', release);
   cv.addEventListener('pointercancel', function () { aim = null; });
-  document.getElementById('bNew').addEventListener('click', function () { loadLevel(level.n, true); });
+  elNew.addEventListener('click', function () { loadLevel(level.n, true); });
   document.getElementById('bReset').addEventListener('click', function () { loadLevel(1, false); });
 
   /* ---------- atualização ---------- */
@@ -253,13 +272,14 @@
       mode = 'goal'; modeT = 0; goals++; hud(); confetti();
       burst(ball.x, ball.y, [SUN, PAPER], 18, 160);
     } else {
-      mode = 'miss'; modeT = 0;
+      mode = 'miss'; modeT = 0; misses++; hud();
+      ghost ={ dx: pull.dx, dy: pull.dy, path: path };
       missText = res === 'planet' ? 'Ops! Bateu num planeta' : 'Perdida no espaço!';
       if (res === 'planet') burst(ball.x, ball.y, [PAPER, SUN, CORAL], 22, 200);
     }
   }
   function update(dt) {
-    clock += dt; modeT += dt;
+    clock += dt; modeT += dt; massT += dt;
     // câmera das estrelas segue a bola (ou o puxão do estilingue) com atraso suave
     var tx = 0, ty = 0;
     if (mode === 'flying') { tx = ball.x - START.x; ty = ball.y - START.y; }
@@ -281,6 +301,7 @@
       ball.rot += ball.vx * dt * 0.05;
       trail.push({ x: ball.x, y: ball.y });
       if (trail.length > 34) trail.shift();
+      path.push({ x: ball.x, y: ball.y });
       if (!res && flightT > 10) res = 'out';
       if (res) endFlight(res);
     } else if (mode === 'miss') {
@@ -404,6 +425,46 @@
       ctx.fillStyle = CORAL; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = INK; ctx.stroke();
     });
   }
+  var GHOST = '#7a70c2'; // lavanda apagada: some no fundo, mas se distingue do rastro atual (PAPER)
+  function drawGhost() {
+    var i, gx = START.x + ghost.dx, gy = START.y + ghost.dy;
+    ctx.fillStyle = GHOST; ctx.globalAlpha = 0.5;
+    for (i = 0; i < ghost.path.length; i += 3) {
+      ctx.beginPath(); ctx.arc(ghost.path[i].x, ghost.path[i].y, 1.6, 0, TAU); ctx.fill();
+    }
+    // onde o dedo soltou: direção e força do último chute
+    ctx.globalAlpha = 0.55; ctx.strokeStyle = GHOST; ctx.lineWidth = 1.5;
+    ctx.setLineDash([3, 4]);
+    ctx.beginPath(); ctx.moveTo(START.x, START.y); ctx.lineTo(gx, gy); ctx.stroke();
+    ctx.beginPath(); ctx.arc(gx, gy, BR, 0, TAU); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+  }
+  /* leitura de massa estilo painel de corrida sci-fi dos anos 90: mira, LCD e barra de segmentos */
+  var PHOSPHOR = '#7dffb0', MAXM = 34 * 34;
+  function drawMass(p, k) {
+    var s = p.r + 6 + (1 - k) * 16, c = 6;
+    ctx.save();
+    ctx.globalAlpha = (0.7 + (reduced ? 0 : 0.08 * Math.sin(clock * 37 + p.x))) * k;
+    ctx.strokeStyle = PHOSPHOR; ctx.fillStyle = PHOSPHOR; ctx.lineWidth = 1.5; ctx.lineCap = 'butt';
+    ctx.beginPath();
+    [[-1, -1], [1, -1], [1, 1], [-1, 1]].forEach(function (q) {
+      var x = p.x + q[0] * s, y = p.y + q[1] * s;
+      ctx.moveTo(x, y - q[1] * c); ctx.lineTo(x, y); ctx.lineTo(x - q[0] * c, y);
+    });
+    ctx.stroke();
+    var right = p.x + s + 52 < W, lx = right ? p.x + s + 4 : p.x - s - 4;
+    ctx.font = '15px VT323, ui-monospace, monospace';
+    ctx.textAlign = right ? 'left' : 'right'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText('M ' + (p.m / 400).toFixed(2), lx, p.y - s + 9);
+    var segs = Math.max(1, Math.round(p.m / MAXM * 6));
+    for (var i = 0; i < 6; i++) {
+      var bx = right ? lx + i * 6 : lx - 5 - i * 6;
+      ctx.globalAlpha = (i < segs ? 0.75 : 0.18) * k;
+      ctx.fillRect(bx, p.y - s + 13, 4, 3);
+    }
+    ctx.restore();
+  }
   function ease(x) { var c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); }
   function banner(text, size, color, y) {
     var s = modeT < 0.25 ? Math.max(0.01, ease(modeT / 0.25)) : 1;
@@ -428,6 +489,10 @@
     var i;
     drawGoal();
     for (i = 0; i < level.planets.length; i++) drawPlanet(level.planets[i]);
+    var mk = reduced ? 1 : Math.min(1, massT / MASS_ANIM);
+    if (!showMass) mk = reduced ? 0 : 1 - mk;
+    if (mk > 0) for (i = 0; i < level.planets.length; i++) drawMass(level.planets[i], mk);
+    if (ghost) drawGhost();
 
     // base do estilingue
     ctx.beginPath(); ctx.ellipse(START.x, START.y + BR + 5, 24, 8, 0, 0, TAU);
